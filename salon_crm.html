@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>サロン顧客管理</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:sans-serif;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+const STORAGE_KEY = "salon_crm_data";
+const initialData = { customers: [], appointments: [] };
+
+function loadData() {
+  try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : initialData; }
+  catch { return initialData; }
+}
+function saveData(data) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+}
+
+const STATUS_LABELS = { active: "定期", inactive: "不定期", new: "新規" };
+const STATUS_COLORS = { active: "#22c55e", inactive: "#f59e0b", new: "#3b82f6" };
+const TREATMENT_TYPES = [
+  { label: "整体60分", price: 6000 },
+  { label: "整体90分", price: 9000 },
+  { label: "整体120分", price: 12000 },
+  { label: "キネシ60分", price: 7000 },
+  { label: "キネシ90分", price: 10000 },
+  { label: "キネシ120分（ミドル）", price: 14000 },
+  { label: "キネシ180分（フル）", price: 18000 },
+  { label: "その他", price: "" },
+];
+
+const KANA_INDEX = ["あ","か","さ","た","な","は","ま","や","ら","わ"];
+const KANA_MAP = {
+  あ:["あ","い","う","え","お"],
+  か:["か","き","く","け","こ"],
+  さ:["さ","し","す","せ","そ"],
+  た:["た","ち","つ","て","と"],
+  な:["な","に","ぬ","ね","の"],
+  は:["は","ひ","ふ","へ","ほ"],
+  ま:["ま","み","む","め","も"],
+  や:["や","ゆ","よ"],
+  ら:["ら","り","る","れ","ろ"],
+  わ:["わ","を","ん"],
+};
+
+function getKanaRow(name, kana) {
+  const src = kana || name;
+  if (!src) return null;
+  const c = src[0];
+  const code = c.charCodeAt(0);
+  const hira = (code >= 0x30A1 && code <= 0x30F6) ? String.fromCharCode(code - 0x60) : c;
+  for (const [row, chars] of Object.entries(KANA_MAP)) {
+    if (chars.includes(hira)) return row;
+  }
+  return null;
+}
+
+const fmt = d => d ? new Date(d).toLocaleDateString("ja-JP") : "—";
+const fmtMon = (y, m) => `${y}年${m + 1}月`;
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+function App() {
+  const [data, setData] = useState(loadData);
+  const [tab, setTab] = useState("customers");
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [kanaFilter, setKanaFilter] = useState(null);
+  const [sortBy, setSortBy] = useState("name");
+  const [modal, setModal] = useState(null);
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [detailCustomer, setDetailCustomer] = useState(null);
+
+  useEffect(() => { saveData(data); }, [data]);
+  const updateData = useCallback(fn => setData(prev => { const next = fn(prev); saveData(next); return next; }), []);
+
+  const saveCustomer = (cust) => {
+    updateData(d => {
+      const exists = d.customers.find(c => c.id === cust.id);
+      return {
+        ...d,
+        customers: exists
+          ? d.customers.map(c => c.id === cust.id ? cust : c)
+          : [...d.customers, { ...cust, id: genId(), createdAt: new Date().toISOString() }]
+      };
+    });
+    setModal(null);
+    if (detailCustomer && detailCustomer.id === cust.id) setDetailCustomer(cust);
+  };
+
+  const deleteCustomer = (id) => {
+    updateData(d => ({
+      ...d,
+      customers: d.customers.filter(c => c.id !== id),
+      appointments: d.appointments.filter(a => a.customerId !== id),
+    }));
+    setDetailCustomer(null);
+    setModal(null);
+  };
+
+  const saveAppt = (appt) => {
+    updateData(d => {
+      const exists = d.appointments.find(a => a.id === appt.id);
+      return {
+        ...d,
+        appointments: exists
+          ? d.appointments.map(a => a.id === appt.id ? appt : a)
+          : [...d.appointments, { ...appt, id: genId() }]
+      };
+    });
+    setModal(null);
+  };
+
+  const deleteAppt = (id) => {
+    updateData(d => ({ ...d, appointments: d.appointments.filter(a => a.id !== id) }));
+    setModal(null);
+  };
+
+  const getVisitCount = (customerId) => data.appointments.filter(a => a.customerId === customerId).length;
+
+  const filtered = data.customers
+    .filter(c => {
+      const q = search.toLowerCase();
+      const matchQ = !q || c.name?.toLowerCase().includes(q) || c.phone?.includes(q) || c.email?.toLowerCase().includes(q);
+      const matchS = filterStatus === "all" || c.status === filterStatus;
+      const matchK = !kanaFilter || getKanaRow(c.name, c.kana) === kanaFilter;
+      return matchQ && matchS && matchK;
+    })
+    .sort((a, b) => {
+      if (sortBy === "visits") return getVisitCount(b.id) - getVisitCount(a.id);
+      return (a.kana || a.name || "").localeCompare(b.kana || b.name || "", "ja");
+    });
+
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const apptsByDay = {};
+  data.appointments.forEach(a => {
+    const d = new Date(a.date);
+    if (d.getFullYear() === calYear && d.getMonth() === calMonth) {
+      const day = d.getDate();
+      if (!apptsByDay[day]) apptsByDay[day] = [];
+      apptsByDay[day].push(a);
+    }
+  });
+  Object.keys(apptsByDay).forEach(day => {
+    apptsByDay[day].sort((a,b) => (a.time||"").localeCompare(b.time||""));
+  });
+  const dayAppts = selectedDay ? (apptsByDay[selectedDay] || []) : [];
+
+  return (
+    <div style={{ fontFamily: "sans-serif", minHeight: "100vh", background: "#f8fafc", color: "#1e293b" }}>
+      <div style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", padding: "16px 24px", color: "#fff", display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 22 }}>🤲</span>
+        <span style={{ fontSize: 18, fontWeight: 700 }}>サロン顧客管理</span>
+        <span style={{ marginLeft: "auto", fontSize: 13, opacity: .8 }}>顧客数: {data.customers.length}</span>
+      </div>
+
+      <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #e2e8f0" }}>
+        {[["customers","👤 顧客一覧"],["calendar","📅 予約カレンダー"]].map(([k,l]) => (
+          <button key={k} onClick={() => { setTab(k); setDetailCustomer(null); }}
+            style={{ padding: "12px 24px", border: "none", background: "none", cursor: "pointer",
+              fontWeight: tab === k ? 700 : 400, borderBottom: tab === k ? "3px solid #6366f1" : "3px solid transparent",
+              color: tab === k ? "#6366f1" : "#64748b", fontSize: 14 }}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
+
+        {tab === "customers" && !detailCustomer && (
+          <div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+              <input value={search} onChange={e => { setSearch(e.target.value); setKanaFilter(null); }} placeholder="名前・電話・メールで検索…"
+                style={{ flex: 1, minWidth: 180, padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                style={{ padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }}>
+                <option value="all">すべて</option>
+                {Object.entries(STATUS_LABELS).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                style={{ padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }}>
+                <option value="name">名前順</option>
+                <option value="visits">来店回数順</option>
+              </select>
+              <button onClick={() => setModal({ type: "customer", payload: {} })}
+                style={{ padding: "8px 16px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 14 }}>
+                ＋ 新規顧客
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
+              <button onClick={() => setKanaFilter(null)}
+                style={{ padding: "4px 10px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 13,
+                  fontWeight: kanaFilter === null ? 700 : 400, background: kanaFilter === null ? "#6366f1" : "#f1f5f9",
+                  color: kanaFilter === null ? "#fff" : "#64748b" }}>全</button>
+              {KANA_INDEX.map(k => (
+                <button key={k} onClick={() => setKanaFilter(kanaFilter === k ? null : k)}
+                  style={{ padding: "4px 10px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 13,
+                    fontWeight: kanaFilter === k ? 700 : 400, background: kanaFilter === k ? "#6366f1" : "#f1f5f9",
+                    color: kanaFilter === k ? "#fff" : "#64748b" }}>{k}</button>
+              ))}
+            </div>
+
+            {filtered.length === 0
+              ? <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>顧客が見つかりません</div>
+              : <div style={{ display: "grid", gap: 10 }}>
+                  {filtered.map(c => {
+                    const visits = getVisitCount(c.id);
+                    const lastAppt = data.appointments.filter(a => a.customerId === c.id).sort((a,b) => new Date(b.date)-new Date(a.date))[0];
+                    return (
+                      <div key={c.id} onClick={() => setDetailCustomer(c)}
+                        style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0",
+                          cursor: "pointer", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 1px 3px rgba(0,0,0,.05)" }}>
+                        <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#ede9fe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                          {c.name ? c.name[0] : "？"}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
+                          {c.kana && <div style={{ fontSize: 12, color: "#94a3b8" }}>{c.kana}</div>}
+                          <div style={{ fontSize: 12, color: "#64748b" }}>{c.phone || "—"} {c.email ? "· "+c.email : ""}</div>
+                        </div>
+                        <div style={{ textAlign: "right", fontSize: 12, color: "#64748b", flexShrink: 0 }}>
+                          <div style={{ display: "inline-block", padding: "2px 10px", borderRadius: 20, background: STATUS_COLORS[c.status]+"22", color: STATUS_COLORS[c.status], fontWeight: 600, marginBottom: 4 }}>
+                            {STATUS_LABELS[c.status] || "—"}
+                          </div>
+                          <div style={{ color: "#6366f1", fontWeight: 600 }}>来店 {visits}回</div>
+                          <div>最終: {fmt(lastAppt ? lastAppt.date : null)}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+        )}
+
+        {tab === "customers" && detailCustomer && (() => {
+          const c = data.customers.find(x => x.id === detailCustomer.id) || detailCustomer;
+          const appts = data.appointments.filter(a => a.customerId === c.id).sort((a,b) => new Date(b.date)-new Date(a.date));
+          const totalSpent = appts.reduce((s,a) => s + (Number(a.price)||0), 0);
+          return (
+            <div>
+              <button onClick={() => setDetailCustomer(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6366f1", fontWeight: 600, marginBottom: 12, fontSize: 14 }}>← 一覧に戻る</button>
+              <div style={{ background: "#fff", borderRadius: 14, padding: 24, border: "1px solid #e2e8f0", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+                  <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#ede9fe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{c.name ? c.name[0] : "？"}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>{c.name}</div>
+                    {c.kana && <div style={{ fontSize: 13, color: "#94a3b8" }}>{c.kana}</div>}
+                    <div style={{ display: "inline-block", padding: "2px 10px", borderRadius: 20, background: STATUS_COLORS[c.status]+"22", color: STATUS_COLORS[c.status], fontWeight: 600, fontSize: 12, marginTop: 4 }}>{STATUS_LABELS[c.status]}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setModal({ type: "customer", payload: c })}
+                      style={{ padding: "8px 14px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>編集</button>
+                    <button onClick={() => setModal({ type: "confirmDelete", payload: c })}
+                      style={{ padding: "8px 14px", background: "#fee2e2", color: "#ef4444", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>削除</button>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 14 }}>
+                  {[["📞 電話",c.phone],["✉️ メール",c.email],["🎂 生年月日",fmt(c.birthday)],["📝 登録日",fmt(c.createdAt)]].map(([l,v]) => (
+                    <div key={l} style={{ background: "#f8fafc", padding: "10px 14px", borderRadius: 8 }}>
+                      <div style={{ color: "#94a3b8", fontSize: 11, marginBottom: 2 }}>{l}</div>
+                      <div style={{ fontWeight: 500 }}>{v || "—"}</div>
+                    </div>
+                  ))}
+                  <div style={{ background: "#ede9fe", padding: "10px 14px", borderRadius: 8 }}>
+                    <div style={{ color: "#94a3b8", fontSize: 11, marginBottom: 2 }}>来店回数</div>
+                    <div style={{ fontWeight: 700, color: "#6366f1", fontSize: 16 }}>{appts.length}回</div>
+                  </div>
+                  <div style={{ background: "#f0fdf4", padding: "10px 14px", borderRadius: 8 }}>
+                    <div style={{ color: "#94a3b8", fontSize: 11, marginBottom: 2 }}>累計金額</div>
+                    <div style={{ fontWeight: 700, color: "#22c55e", fontSize: 16 }}>¥{totalSpent.toLocaleString()}</div>
+                  </div>
+                </div>
+                {c.notes && <div style={{ marginTop: 12, background: "#fffbeb", padding: "10px 14px", borderRadius: 8, fontSize: 13, color: "#78350f" }}>📝 {c.notes}</div>}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>施術履歴 ({appts.length}件)</div>
+                <button onClick={() => setModal({ type: "appt", payload: { customerId: c.id } })}
+                  style={{ padding: "7px 14px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>＋ 施術追加</button>
+              </div>
+              {appts.length === 0
+                ? <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0" }}>施術履歴がありません</div>
+                : appts.map(a => (
+                  <div key={a.id} style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0", marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{fmt(a.date)}{a.time ? " "+a.time+"〜" : ""} — {a.treatment || "施術"}</div>
+                        {a.price && <div style={{ fontSize: 13, color: "#6366f1", marginTop: 2 }}>¥{Number(a.price).toLocaleString()}</div>}
+                        {a.memo && <div style={{ fontSize: 13, color: "#64748b", marginTop: 6 }}>{a.memo}</div>}
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => setModal({ type: "appt", payload: a })} style={{ padding: "4px 10px", background: "#ede9fe", color: "#6366f1", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>編集</button>
+                        <button onClick={() => deleteAppt(a.id)} style={{ padding: "4px 10px", background: "#fee2e2", color: "#ef4444", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>削除</button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          );
+        })()}
+
+        {tab === "calendar" && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <button onClick={() => { let m=calMonth-1,y=calYear; if(m<0){m=11;y--;} setCalMonth(m);setCalYear(y);setSelectedDay(null); }}
+                style={{ padding: "6px 14px", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", background: "#fff" }}>◀</button>
+              <div style={{ flex: 1, textAlign: "center", fontWeight: 700, fontSize: 16 }}>{fmtMon(calYear,calMonth)}</div>
+              <button onClick={() => { let m=calMonth+1,y=calYear; if(m>11){m=0;y++;} setCalMonth(m);setCalYear(y);setSelectedDay(null); }}
+                style={{ padding: "6px 14px", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", background: "#fff" }}>▶</button>
+              <button onClick={() => setModal({ type: "appt", payload: {} })}
+                style={{ padding: "8px 14px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>＋ 予約追加</button>
+            </div>
+            <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden", marginBottom: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", background: "#f1f5f9" }}>
+                {["日","月","火","水","木","金","土"].map((d,i) => (
+                  <div key={d} style={{ textAlign: "center", padding: "8px 0", fontSize: 12, fontWeight: 600, color: i===0?"#ef4444":i===6?"#3b82f6":"#64748b" }}>{d}</div>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)" }}>
+                {Array.from({length: firstDay}).map((_,i) => <div key={"e"+i} style={{ minHeight: 64, borderTop: "1px solid #f1f5f9" }} />)}
+                {Array.from({length: daysInMonth}).map((_,i) => {
+                  const day = i+1;
+                  const today = new Date();
+                  const isToday = today.getFullYear()===calYear && today.getMonth()===calMonth && today.getDate()===day;
+                  const dayApptList = apptsByDay[day] || [];
+                  const dow = (firstDay+i)%7;
+                  return (
+                    <div key={day} onClick={() => setSelectedDay(selectedDay===day?null:day)}
+                      style={{ minHeight: 64, borderTop: "1px solid #f1f5f9", padding: "6px 4px", cursor: "pointer",
+                        background: selectedDay===day?"#ede9fe":isToday?"#f0fdf4":"#fff" }}>
+                      <div style={{ fontSize: 13, fontWeight: isToday?700:400, color: isToday?"#22c55e":dow===0?"#ef4444":dow===6?"#3b82f6":"#1e293b", marginBottom: 2 }}>{day}</div>
+                      {dayApptList.slice(0,2).map(a => {
+                        const cust = data.customers.find(c=>c.id===a.customerId);
+                        return <div key={a.id} style={{ fontSize: 10, background: "#6366f1", color: "#fff", borderRadius: 4, padding: "1px 4px", marginBottom: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.time ? a.time+"〜 " : ""}{cust ? cust.name : "?"}・{a.treatment||"施術"}</div>;
+                      })}
+                      {dayApptList.length>2 && <div style={{ fontSize: 10, color: "#6366f1" }}>+{dayApptList.length-2}件</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {selectedDay && (
+              <div style={{ background: "#fff", borderRadius: 12, padding: 18, border: "1px solid #e2e8f0" }}>
+                <div style={{ fontWeight: 700, marginBottom: 10 }}>{calYear}年{calMonth+1}月{selectedDay}日の予約 ({dayAppts.length}件)</div>
+                {dayAppts.length===0
+                  ? <div style={{ color: "#94a3b8", fontSize: 14 }}>予約なし</div>
+                  : dayAppts.map(a => {
+                    const cust = data.customers.find(c=>c.id===a.customerId);
+                    return (
+                      <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #f1f5f9" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>{cust ? cust.name : "不明"}</div>
+                          <div style={{ fontSize: 13, color: "#64748b" }}>{a.time ? "🕐 "+a.time+"〜　" : ""}{a.treatment||"施術"} {a.price ? "· ¥"+Number(a.price).toLocaleString() : ""}</div>
+                          {a.memo && <div style={{ fontSize: 12, color: "#94a3b8" }}>{a.memo}</div>}
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => setModal({type:"appt",payload:a})} style={{ padding: "4px 10px", background: "#ede9fe", color: "#6366f1", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>編集</button>
+                          <button onClick={() => deleteAppt(a.id)} style={{ padding: "4px 10px", background: "#fee2e2", color: "#ef4444", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>削除</button>
+                        </div>
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {modal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}
+          onClick={e => { if(e.target===e.currentTarget) setModal(null); }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto" }}>
+            {modal.type === "customer" && <CustomerForm initial={modal.payload} onSave={saveCustomer} onCancel={() => setModal(null)} />}
+            {modal.type === "appt" && <ApptForm initial={modal.payload} customers={data.customers} onSave={saveAppt} onCancel={() => setModal(null)} />}
+            {modal.type === "confirmDelete" && (
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>顧客を削除しますか？</div>
+                <div style={{ color: "#64748b", fontSize: 14, marginBottom: 20 }}>「{modal.payload.name}」と関連する予約・施術履歴もすべて削除されます。</div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button onClick={() => setModal(null)} style={{ padding: "8px 18px", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", background: "#fff" }}>キャンセル</button>
+                  <button onClick={() => deleteCustomer(modal.payload.id)} style={{ padding: "8px 18px", background: "#ef4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>削除する</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomerForm({ initial, onSave, onCancel }) {
+  const [f, setF] = useState({ name:"", kana:"", phone:"", email:"", birthday:"", status:"new", notes:"", ...initial });
+  const set = k => e => setF(p => ({...p, [k]: e.target.value}));
+  return (
+    <div>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>{f.id ? "顧客を編集" : "新規顧客登録"}</div>
+      {[["name","お名前 *","text"],["kana","ふりがな","text"],["phone","電話番号","tel"],["email","メールアドレス","email"],["birthday","生年月日","date"]].map(([k,l,t]) => (
+        <div key={k} style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>{l}</label>
+          <input type={t} value={f[k]||""} onChange={set(k)} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+        </div>
+      ))}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>ステータス</label>
+        <select value={f.status} onChange={set("status")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }}>
+          {Object.entries(STATUS_LABELS).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>メモ</label>
+        <textarea value={f.notes||""} onChange={set("notes")} rows={3} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, resize: "vertical" }} />
+      </div>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <button onClick={onCancel} style={{ padding: "8px 18px", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", background: "#fff" }}>キャンセル</button>
+        <button onClick={() => { if(!f.name||!f.name.trim()) return alert("名前を入力してください"); onSave(f); }}
+          style={{ padding: "8px 20px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>保存</button>
+      </div>
+    </div>
+  );
+}
+
+function ApptForm({ initial, customers, onSave, onCancel }) {
+  const [f, setF] = useState({ date: new Date().toISOString().slice(0,10), time:"", treatment:"", treatmentCustom:"", price:"", memo:"", customerId:"", ...initial, time: initial.time ?? "" });
+  const set = k => e => setF(p => ({...p, [k]: e.target.value}));
+  const handleTreatmentChange = e => {
+    const val = e.target.value;
+    const found = TREATMENT_TYPES.find(t => t.label === val);
+    setF(p => ({ ...p, treatment: val, price: found && found.price !== "" ? found.price : p.price }));
+  };
+  return (
+    <div>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>{f.id ? "施術を編集" : "施術・予約を追加"}</div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>顧客 *</label>
+        <select value={f.customerId} onChange={set("customerId")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }}>
+          <option value="">選択してください</option>
+          {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>日付 *</label>
+        <input type="date" value={f.date} onChange={set("date")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>時間</label>
+        <input type="time" value={f.time||""} onChange={set("time")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>施術内容</label>
+        <select value={f.treatment} onChange={handleTreatmentChange} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }}>
+          <option value="">選択してください</option>
+          {TREATMENT_TYPES.map(t => <option key={t.label} value={t.label}>{t.label}</option>)}
+          <option value="__custom__">✏️ 自由入力…</option>
+        </select>
+      </div>
+      {(f.treatment === "__custom__" || (f.treatment && !TREATMENT_TYPES.find(t => t.label === f.treatment) && f.treatment !== "")) && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>施術内容（自由入力）</label>
+          <input value={f.treatmentCustom || (TREATMENT_TYPES.find(t=>t.label===f.treatment) ? "" : f.treatment) || ""}
+            onChange={e => setF(p=>({...p, treatmentCustom: e.target.value}))}
+            placeholder="施術内容を入力"
+            style={{ width: "100%", padding: "8px 12px", border: "1px solid #6366f1", borderRadius: 8, fontSize: 14 }} />
+        </div>
+      )}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>金額 (円)</label>
+        <input type="number" value={f.price} onChange={set("price")} placeholder="例: 8000" style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>施術メモ</label>
+        <textarea value={f.memo||""} onChange={set("memo")} rows={3} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, resize: "vertical" }} />
+      </div>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <button onClick={onCancel} style={{ padding: "8px 18px", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", background: "#fff" }}>キャンセル</button>
+        <button onClick={() => {
+            if(!f.customerId) return alert("顧客を選択してください");
+            if(!f.date) return alert("日付を入力してください");
+            const treatmentLabel = f.treatment === "__custom__" ? (f.treatmentCustom || "") : f.treatment;
+            onSave({...f, treatment: treatmentLabel});
+          }}
+          style={{ padding: "8px 20px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>保存</button>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById("root"));
+</script>
+</body>
+</html>

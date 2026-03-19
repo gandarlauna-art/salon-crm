@@ -1,18 +1,4 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>サロン顧客管理</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:sans-serif;}</style>
-</head>
-<body>
-<div id="root"></div>
-<script type="text/babel">
-const { useState, useEffect, useCallback } = React;
+import { useState, useEffect, useCallback } from "react";
 
 const STORAGE_KEY = "salon_crm_data";
 const initialData = { customers: [], appointments: [] };
@@ -52,6 +38,7 @@ const KANA_MAP = {
   わ:["わ","を","ん"],
 };
 
+// ひらがな・カタカナの先頭文字を取得
 function getKanaRow(name, kana) {
   const src = kana || name;
   if (!src) return null;
@@ -68,13 +55,13 @@ const fmt = d => d ? new Date(d).toLocaleDateString("ja-JP") : "—";
 const fmtMon = (y, m) => `${y}年${m + 1}月`;
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
-function App() {
+export default function App() {
   const [data, setData] = useState(loadData);
   const [tab, setTab] = useState("customers");
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [kanaFilter, setKanaFilter] = useState(null);
-  const [sortBy, setSortBy] = useState("name");
+  const [sortBy, setSortBy] = useState("name"); // "name" | "visits"
   const [modal, setModal] = useState(null);
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
@@ -95,7 +82,7 @@ function App() {
       };
     });
     setModal(null);
-    if (detailCustomer && detailCustomer.id === cust.id) setDetailCustomer(cust);
+    if (detailCustomer?.id === cust.id) setDetailCustomer(cust);
   };
 
   const deleteCustomer = (id) => {
@@ -107,6 +94,8 @@ function App() {
     setDetailCustomer(null);
     setModal(null);
   };
+
+  const getApptTime = (a) => a.time || "";
 
   const saveAppt = (appt) => {
     updateData(d => {
@@ -138,7 +127,7 @@ function App() {
     })
     .sort((a, b) => {
       if (sortBy === "visits") return getVisitCount(b.id) - getVisitCount(a.id);
-      return (a.kana || a.name || "").localeCompare(b.kana || b.name || "", "ja");
+      return (a.name || "").localeCompare(b.name || "", "ja");
     });
 
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
@@ -152,9 +141,6 @@ function App() {
       apptsByDay[day].push(a);
     }
   });
-  Object.keys(apptsByDay).forEach(day => {
-    apptsByDay[day].sort((a,b) => (a.time||"").localeCompare(b.time||""));
-  });
   const dayAppts = selectedDay ? (apptsByDay[selectedDay] || []) : [];
 
   return (
@@ -163,31 +149,6 @@ function App() {
         <span style={{ fontSize: 22 }}>🤲</span>
         <span style={{ fontSize: 18, fontWeight: 700 }}>サロン顧客管理</span>
         <span style={{ marginLeft: "auto", fontSize: 13, opacity: .8 }}>顧客数: {data.customers.length}</span>
-        <button onClick={() => {
-          const blob = new Blob([JSON.stringify(data)], {type:"application/json"});
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = "salon_crm_backup.json";
-          a.click();
-        }} style={{ padding: "4px 12px", background: "rgba(255,255,255,.2)", border: "1px solid rgba(255,255,255,.4)", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 12 }}>📥 エクスポート</button>
-        <label style={{ padding: "4px 12px", background: "rgba(255,255,255,.2)", border: "1px solid rgba(255,255,255,.4)", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 12 }}>
-          📤 インポート
-          <input type="file" accept=".json" style={{ display: "none" }} onChange={e => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = ev => {
-              try {
-                const imported = JSON.parse(ev.target.result);
-                if (imported.customers && imported.appointments) {
-                  updateData(() => imported);
-                  alert("インポート完了！顧客数: " + imported.customers.length + "人");
-                } else { alert("ファイルの形式が正しくありません"); }
-              } catch { alert("読み込みに失敗しました"); }
-            };
-            reader.readAsText(file);
-          }} />
-        </label>
       </div>
 
       <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #e2e8f0" }}>
@@ -201,8 +162,10 @@ function App() {
 
       <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
 
+        {/* 顧客一覧 */}
         {tab === "customers" && !detailCustomer && (
           <div>
+            {/* 検索・フィルター */}
             <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
               <input value={search} onChange={e => { setSearch(e.target.value); setKanaFilter(null); }} placeholder="名前・電話・メールで検索…"
                 style={{ flex: 1, minWidth: 180, padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
@@ -222,16 +185,15 @@ function App() {
               </button>
             </div>
 
+            {/* 五十音インデックス */}
             <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
               <button onClick={() => setKanaFilter(null)}
-                style={{ padding: "4px 10px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 13,
-                  fontWeight: kanaFilter === null ? 700 : 400, background: kanaFilter === null ? "#6366f1" : "#f1f5f9",
-                  color: kanaFilter === null ? "#fff" : "#64748b" }}>全</button>
+                style={{ padding: "4px 10px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 13, fontWeight: kanaFilter === null ? 700 : 400,
+                  background: kanaFilter === null ? "#6366f1" : "#f1f5f9", color: kanaFilter === null ? "#fff" : "#64748b" }}>全</button>
               {KANA_INDEX.map(k => (
                 <button key={k} onClick={() => setKanaFilter(kanaFilter === k ? null : k)}
-                  style={{ padding: "4px 10px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 13,
-                    fontWeight: kanaFilter === k ? 700 : 400, background: kanaFilter === k ? "#6366f1" : "#f1f5f9",
-                    color: kanaFilter === k ? "#fff" : "#64748b" }}>{k}</button>
+                  style={{ padding: "4px 10px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 13, fontWeight: kanaFilter === k ? 700 : 400,
+                    background: kanaFilter === k ? "#6366f1" : "#f1f5f9", color: kanaFilter === k ? "#fff" : "#64748b" }}>{k}</button>
               ))}
             </div>
 
@@ -244,21 +206,22 @@ function App() {
                     return (
                       <div key={c.id} onClick={() => setDetailCustomer(c)}
                         style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0",
-                          cursor: "pointer", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 1px 3px rgba(0,0,0,.05)" }}>
+                          cursor: "pointer", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 1px 3px rgba(0,0,0,.05)" }}
+                        onMouseEnter={e => e.currentTarget.style.boxShadow="0 4px 12px rgba(99,102,241,.15)"}
+                        onMouseLeave={e => e.currentTarget.style.boxShadow="0 1px 3px rgba(0,0,0,.05)"}>
                         <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#ede9fe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
-                          {c.name ? c.name[0] : "？"}
+                          {c.name?.[0] || "？"}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
-                          {c.kana && <div style={{ fontSize: 12, color: "#94a3b8" }}>{c.kana}</div>}
-                          <div style={{ fontSize: 12, color: "#64748b" }}>{c.phone || "—"} {c.email ? "· "+c.email : ""}</div>
+                          <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{c.phone || "—"} {c.email ? `· ${c.email}` : ""}</div>
                         </div>
                         <div style={{ textAlign: "right", fontSize: 12, color: "#64748b", flexShrink: 0 }}>
                           <div style={{ display: "inline-block", padding: "2px 10px", borderRadius: 20, background: STATUS_COLORS[c.status]+"22", color: STATUS_COLORS[c.status], fontWeight: 600, marginBottom: 4 }}>
                             {STATUS_LABELS[c.status] || "—"}
                           </div>
                           <div style={{ color: "#6366f1", fontWeight: 600 }}>来店 {visits}回</div>
-                          <div>最終: {fmt(lastAppt ? lastAppt.date : null)}</div>
+                          <div>最終: {fmt(lastAppt?.date)}</div>
                         </div>
                       </div>
                     );
@@ -268,6 +231,7 @@ function App() {
           </div>
         )}
 
+        {/* 顧客詳細 */}
         {tab === "customers" && detailCustomer && (() => {
           const c = data.customers.find(x => x.id === detailCustomer.id) || detailCustomer;
           const appts = data.appointments.filter(a => a.customerId === c.id).sort((a,b) => new Date(b.date)-new Date(a.date));
@@ -277,10 +241,9 @@ function App() {
               <button onClick={() => setDetailCustomer(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6366f1", fontWeight: 600, marginBottom: 12, fontSize: 14 }}>← 一覧に戻る</button>
               <div style={{ background: "#fff", borderRadius: 14, padding: 24, border: "1px solid #e2e8f0", marginBottom: 16 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
-                  <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#ede9fe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{c.name ? c.name[0] : "？"}</div>
+                  <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#ede9fe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{c.name?.[0] || "？"}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 20, fontWeight: 700 }}>{c.name}</div>
-                    {c.kana && <div style={{ fontSize: 13, color: "#94a3b8" }}>{c.kana}</div>}
                     <div style={{ display: "inline-block", padding: "2px 10px", borderRadius: 20, background: STATUS_COLORS[c.status]+"22", color: STATUS_COLORS[c.status], fontWeight: 600, fontSize: 12, marginTop: 4 }}>{STATUS_LABELS[c.status]}</div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -320,7 +283,7 @@ function App() {
                   <div key={a.id} style={{ background: "#fff", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0", marginBottom: 8 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{fmt(a.date)}{a.time ? " "+a.time+"〜" : ""} — {a.treatment || "施術"}</div>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{fmt(a.date)}{a.time ? ` ${a.time}〜` : ""} — {a.treatment || "施術"}</div>
                         {a.price && <div style={{ fontSize: 13, color: "#6366f1", marginTop: 2 }}>¥{Number(a.price).toLocaleString()}</div>}
                         {a.memo && <div style={{ fontSize: 13, color: "#64748b", marginTop: 6 }}>{a.memo}</div>}
                       </div>
@@ -336,6 +299,7 @@ function App() {
           );
         })()}
 
+        {/* カレンダー */}
         {tab === "calendar" && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -366,11 +330,11 @@ function App() {
                       style={{ minHeight: 64, borderTop: "1px solid #f1f5f9", padding: "6px 4px", cursor: "pointer",
                         background: selectedDay===day?"#ede9fe":isToday?"#f0fdf4":"#fff" }}>
                       <div style={{ fontSize: 13, fontWeight: isToday?700:400, color: isToday?"#22c55e":dow===0?"#ef4444":dow===6?"#3b82f6":"#1e293b", marginBottom: 2 }}>{day}</div>
-                      {dayApptList.slice(0,2).map(a => {
+                      {dayApptList.slice(0,3).map(a => {
                         const cust = data.customers.find(c=>c.id===a.customerId);
-                        return <div key={a.id} style={{ fontSize: 10, background: "#6366f1", color: "#fff", borderRadius: 4, padding: "1px 4px", marginBottom: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.time ? a.time+"〜 " : ""}{cust ? cust.name : "?"}・{a.treatment||"施術"}</div>;
+                        return <div key={a.id} style={{ fontSize: 10, background: "#6366f1", color: "#fff", borderRadius: 4, padding: "1px 4px", marginBottom: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.time ? a.time+"〜 " : ""}{cust ? cust.name : "?"}</div>;
                       })}
-                      {dayApptList.length>2 && <div style={{ fontSize: 10, color: "#6366f1" }}>+{dayApptList.length-2}件</div>}
+                      {dayApptList.length>3 && <div style={{ fontSize: 10, color: "#6366f1" }}>+{dayApptList.length-3}件</div>}
                     </div>
                   );
                 })}
@@ -386,8 +350,8 @@ function App() {
                     return (
                       <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #f1f5f9" }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{cust ? cust.name : "不明"}</div>
-                          <div style={{ fontSize: 13, color: "#64748b" }}>{a.time ? "🕐 "+a.time+"〜　" : ""}{a.treatment||"施術"} {a.price ? "· ¥"+Number(a.price).toLocaleString() : ""}</div>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>{cust?.name || "不明"}</div>
+                          <div style={{ fontSize: 13, color: "#64748b" }}>{a.treatment||"施術"} {a.price?`· ¥${Number(a.price).toLocaleString()}`:""}</div>
                           {a.memo && <div style={{ fontSize: 12, color: "#94a3b8" }}>{a.memo}</div>}
                         </div>
                         <div style={{ display: "flex", gap: 6 }}>
@@ -428,7 +392,7 @@ function App() {
 }
 
 function CustomerForm({ initial, onSave, onCancel }) {
-  const [f, setF] = useState({ name:"", kana:"", phone:"", email:"", birthday:"", status:"new", notes:"", ...initial });
+  const [f, setF] = useState({ name:"", phone:"", email:"", birthday:"", status:"new", notes:"", ...initial });
   const set = k => e => setF(p => ({...p, [k]: e.target.value}));
   return (
     <div>
@@ -436,7 +400,7 @@ function CustomerForm({ initial, onSave, onCancel }) {
       {[["name","お名前 *","text"],["kana","ふりがな","text"],["phone","電話番号","tel"],["email","メールアドレス","email"],["birthday","生年月日","date"]].map(([k,l,t]) => (
         <div key={k} style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>{l}</label>
-          <input type={t} value={f[k]||""} onChange={set(k)} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+          <input type={t} value={f[k]||""} onChange={set(k)} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }} />
         </div>
       ))}
       <div style={{ marginBottom: 12 }}>
@@ -447,42 +411,91 @@ function CustomerForm({ initial, onSave, onCancel }) {
       </div>
       <div style={{ marginBottom: 16 }}>
         <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>メモ</label>
-        <textarea value={f.notes||""} onChange={set("notes")} rows={3} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, resize: "vertical" }} />
+        <textarea value={f.notes||""} onChange={set("notes")} rows={3} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, resize: "vertical", boxSizing: "border-box" }} />
       </div>
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onCancel} style={{ padding: "8px 18px", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", background: "#fff" }}>キャンセル</button>
-        <button onClick={() => { if(!f.name||!f.name.trim()) return alert("名前を入力してください"); onSave(f); }}
+        <button onClick={() => { if(!f.name?.trim()) return alert("名前を入力してください"); onSave(f); }}
           style={{ padding: "8px 20px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>保存</button>
       </div>
     </div>
   );
 }
 
+function CustomerPicker({ customers, value, onChange }) {
+  const [search, setSearch] = useState("");
+  const [kana, setKana] = useState(null);
+
+  const filtered = customers.filter(c => {
+    const q = search.toLowerCase();
+    const matchQ = !q || c.name?.toLowerCase().includes(q) || c.kana?.includes(q);
+    const matchK = !kana || getKanaRow(c.name, c.kana) === kana;
+    return matchQ && matchK;
+  }).sort((a,b) => (a.kana||a.name||"").localeCompare(b.kana||b.name||"","ja"));
+
+  const selected = customers.find(c => c.id === value);
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>顧客 *</label>
+      {selected && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#ede9fe", borderRadius: 8, marginBottom: 8 }}>
+          <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{selected.name}</span>
+          <button onClick={() => onChange("")} style={{ background: "none", border: "none", cursor: "pointer", color: "#6366f1", fontSize: 12 }}>変更</button>
+        </div>
+      )}
+      {!selected && (
+        <>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="名前・ふりがなで検索…"
+            style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, marginBottom: 8, boxSizing: "border-box" }} />
+          <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginBottom: 8 }}>
+            <button onClick={() => setKana(null)} style={{ padding: "3px 8px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 12, background: kana===null?"#6366f1":"#f1f5f9", color: kana===null?"#fff":"#64748b" }}>全</button>
+            {KANA_INDEX.map(k => (
+              <button key={k} onClick={() => setKana(kana===k?null:k)} style={{ padding: "3px 8px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 12, background: kana===k?"#6366f1":"#f1f5f9", color: kana===k?"#fff":"#64748b" }}>{k}</button>
+            ))}
+          </div>
+          <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+            {filtered.length === 0
+              ? <div style={{ padding: 12, color: "#94a3b8", fontSize: 13, textAlign: "center" }}>見つかりません</div>
+              : filtered.map(c => (
+                <div key={c.id} onClick={() => onChange(c.id)}
+                  style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}
+                  onMouseEnter={e => e.currentTarget.style.background="#f8f7ff"}
+                  onMouseLeave={e => e.currentTarget.style.background="#fff"}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#ede9fe", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{c.name?.[0]}</div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
+                    {c.kana && <div style={{ fontSize: 11, color: "#94a3b8" }}>{c.kana}</div>}
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ApptForm({ initial, customers, onSave, onCancel }) {
-  const [f, setF] = useState({ date: new Date().toISOString().slice(0,10), time:"", treatment:"", treatmentCustom:"", price:"", memo:"", customerId:"", ...initial, time: initial.time ?? "" });
+  const [f, setF] = useState({ date: new Date().toISOString().slice(0,10), treatment:"", treatmentCustom:"", price:"", memo:"", customerId:"", ...initial });
   const set = k => e => setF(p => ({...p, [k]: e.target.value}));
   const handleTreatmentChange = e => {
     const val = e.target.value;
     const found = TREATMENT_TYPES.find(t => t.label === val);
-    setF(p => ({ ...p, treatment: val, price: found && found.price !== "" ? found.price : p.price }));
+    setF(p => ({ ...p, treatment: val, price: found?.price !== "" ? (found?.price ?? p.price) : p.price }));
   };
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>{f.id ? "施術を編集" : "施術・予約を追加"}</div>
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>顧客 *</label>
-        <select value={f.customerId} onChange={set("customerId")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }}>
-          <option value="">選択してください</option>
-          {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </div>
+      <CustomerPicker customers={customers} value={f.customerId} onChange={id => setF(p=>({...p, customerId: id}))} />
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>日付 *</label>
-        <input type="date" value={f.date} onChange={set("date")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+        <input type="date" value={f.date} onChange={set("date")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }} />
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>時間</label>
-        <input type="time" value={f.time||""} onChange={set("time")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+        <input type="time" value={f.time||""} onChange={set("time")} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }} />
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>施術内容</label>
@@ -498,16 +511,16 @@ function ApptForm({ initial, customers, onSave, onCancel }) {
           <input value={f.treatmentCustom || (TREATMENT_TYPES.find(t=>t.label===f.treatment) ? "" : f.treatment) || ""}
             onChange={e => setF(p=>({...p, treatmentCustom: e.target.value}))}
             placeholder="施術内容を入力"
-            style={{ width: "100%", padding: "8px 12px", border: "1px solid #6366f1", borderRadius: 8, fontSize: 14 }} />
+            style={{ width: "100%", padding: "8px 12px", border: "1px solid #6366f1", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }} />
         </div>
       )}
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>金額 (円)</label>
-        <input type="number" value={f.price} onChange={set("price")} placeholder="例: 8000" style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+        <input type="number" value={f.price} onChange={set("price")} placeholder="例: 8000" style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }} />
       </div>
       <div style={{ marginBottom: 16 }}>
         <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>施術メモ</label>
-        <textarea value={f.memo||""} onChange={set("memo")} rows={3} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, resize: "vertical" }} />
+        <textarea value={f.memo||""} onChange={set("memo")} rows={3} style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, resize: "vertical", boxSizing: "border-box" }} />
       </div>
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onCancel} style={{ padding: "8px 18px", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", background: "#fff" }}>キャンセル</button>
@@ -522,8 +535,3 @@ function ApptForm({ initial, customers, onSave, onCancel }) {
     </div>
   );
 }
-
-ReactDOM.render(React.createElement(App), document.getElementById("root"));
-</script>
-</body>
-</html>

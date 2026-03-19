@@ -363,7 +363,7 @@ function App() {
                   const dow = (firstDay+i)%7;
                   return (
                     <div key={day} onClick={() => setSelectedDay(selectedDay===day?null:day)}
-                      style={{ minHeight: 64, borderTop: "1px solid #f1f5f9", padding: "6px 4px", cursor: "pointer",
+                      style={{ minHeight: 80, borderTop: "1px solid #f1f5f9", padding: "4px 3px", cursor: "pointer",
                         background: selectedDay===day?"#ede9fe":isToday?"#f0fdf4":"#fff" }}>
                       <div style={{ fontSize: 13, fontWeight: isToday?700:400, color: isToday?"#22c55e":dow===0?"#ef4444":dow===6?"#3b82f6":"#1e293b", marginBottom: 2 }}>{day}</div>
                       {dayApptList.slice(0,2).map(a => {

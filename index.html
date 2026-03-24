@@ -68,6 +68,99 @@ const fmt = d => d ? new Date(d).toLocaleDateString("ja-JP") : "—";
 const fmtMon = (y, m) => `${y}年${m + 1}月`;
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
+function SalesTab({ data }) {
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth();
+  const [selYear, setSelYear] = useState(thisYear);
+  const [selMonth, setSelMonth] = useState(thisMonth);
+
+  const monthAppts = data.appointments.filter(a => {
+    const d = new Date(a.date);
+    return d.getFullYear() === selYear && d.getMonth() === selMonth;
+  });
+  const yearAppts = data.appointments.filter(a => new Date(a.date).getFullYear() === selYear);
+
+  const monthTotal = monthAppts.reduce((s,a) => s + (Number(a.price)||0), 0);
+  const yearTotal = yearAppts.reduce((s,a) => s + (Number(a.price)||0), 0);
+
+  const menuBreakdown = {};
+  monthAppts.forEach(a => {
+    const t = a.treatment || "未設定";
+    if (!menuBreakdown[t]) menuBreakdown[t] = { count: 0, total: 0 };
+    menuBreakdown[t].count++;
+    menuBreakdown[t].total += Number(a.price)||0;
+  });
+
+  const monthlyTotals = Array.from({length:12},(_,i) => {
+    const total = data.appointments
+      .filter(a => { const d=new Date(a.date); return d.getFullYear()===selYear && d.getMonth()===i; })
+      .reduce((s,a) => s+(Number(a.price)||0), 0);
+    return { month: i+1, total };
+  });
+  const maxMonthly = Math.max(...monthlyTotals.map(m=>m.total), 1);
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
+        <select value={selYear} onChange={e=>setSelYear(Number(e.target.value))}
+          style={{ padding:"8px 12px", border:"1px solid #cbd5e1", borderRadius:8, fontSize:14 }}>
+          {[thisYear-1, thisYear, thisYear+1].map(y => <option key={y} value={y}>{y}年</option>)}
+        </select>
+        <select value={selMonth} onChange={e=>setSelMonth(Number(e.target.value))}
+          style={{ padding:"8px 12px", border:"1px solid #cbd5e1", borderRadius:8, fontSize:14 }}>
+          {Array.from({length:12},(_,i)=><option key={i} value={i}>{i+1}月</option>)}
+        </select>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
+        <div style={{ background:"#fff", borderRadius:14, padding:20, border:"1px solid #e2e8f0", textAlign:"center" }}>
+          <div style={{ fontSize:12, color:"#94a3b8", marginBottom:6 }}>{selYear}年{selMonth+1}月の売上</div>
+          <div style={{ fontSize:28, fontWeight:700, color:"#6366f1" }}>¥{monthTotal.toLocaleString()}</div>
+          <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>{monthAppts.length}件</div>
+        </div>
+        <div style={{ background:"#fff", borderRadius:14, padding:20, border:"1px solid #e2e8f0", textAlign:"center" }}>
+          <div style={{ fontSize:12, color:"#94a3b8", marginBottom:6 }}>{selYear}年の年間売上</div>
+          <div style={{ fontSize:28, fontWeight:700, color:"#22c55e" }}>¥{yearTotal.toLocaleString()}</div>
+          <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>{yearAppts.length}件</div>
+        </div>
+      </div>
+
+      <div style={{ background:"#fff", borderRadius:14, padding:20, border:"1px solid #e2e8f0", marginBottom:20 }}>
+        <div style={{ fontWeight:700, fontSize:15, marginBottom:16 }}>{selYear}年 月別売上</div>
+        <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:140 }}>
+          {monthlyTotals.map(m => (
+            <div key={m.month} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+              <div style={{ fontSize:9, color:"#6366f1", fontWeight:600, textAlign:"center" }}>{m.total>0?"¥"+(m.total/10000).toFixed(0)+"万":""}</div>
+              <div style={{ width:"100%", background: m.month===selMonth+1?"#6366f1":"#c7d2fe",
+                height: Math.max((m.total/maxMonthly)*90, m.total>0?4:0), borderRadius:"4px 4px 0 0" }} />
+              <div style={{ fontSize:10, color: m.month===selMonth+1?"#6366f1":"#94a3b8", fontWeight: m.month===selMonth+1?700:400 }}>{m.month}月</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ background:"#fff", borderRadius:14, padding:20, border:"1px solid #e2e8f0" }}>
+        <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>{selMonth+1}月 メニュー別内訳</div>
+        {Object.keys(menuBreakdown).length === 0
+          ? <div style={{ color:"#94a3b8", textAlign:"center", padding:20 }}>この月の施術記録がありません</div>
+          : Object.entries(menuBreakdown)
+              .sort((a,b) => b[1].total - a[1].total)
+              .map(([menu, val]) => (
+                <div key={menu} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:"1px solid #f1f5f9" }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:600, fontSize:14 }}>{menu}</div>
+                    <div style={{ fontSize:12, color:"#94a3b8" }}>{val.count}件</div>
+                  </div>
+                  <div style={{ fontWeight:700, color:"#6366f1", fontSize:15 }}>¥{val.total.toLocaleString()}</div>
+                </div>
+              ))
+        }
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [data, setData] = useState(loadData);
   const [tab, setTab] = useState("customers");
@@ -190,10 +283,10 @@ function App() {
         </label>
       </div>
 
-      <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #e2e8f0" }}>
-        {[["customers","👤 顧客一覧"],["calendar","📅 予約カレンダー"]].map(([k,l]) => (
+      <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #e2e8f0", overflowX: "auto" }}>
+        {[["customers","👤 顧客一覧"],["calendar","📅 予約カレンダー"],["sales","📊 売上"]].map(([k,l]) => (
           <button key={k} onClick={() => { setTab(k); setDetailCustomer(null); }}
-            style={{ padding: "12px 24px", border: "none", background: "none", cursor: "pointer",
+            style={{ padding: "12px 20px", border: "none", background: "none", cursor: "pointer", whiteSpace: "nowrap",
               fontWeight: tab === k ? 700 : 400, borderBottom: tab === k ? "3px solid #6366f1" : "3px solid transparent",
               color: tab === k ? "#6366f1" : "#64748b", fontSize: 14 }}>{l}</button>
         ))}
@@ -335,6 +428,8 @@ function App() {
             </div>
           );
         })()}
+
+        {tab === "sales" && <SalesTab data={data} />}
 
         {tab === "calendar" && (
           <div>

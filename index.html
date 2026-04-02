@@ -439,7 +439,7 @@ function App() {
               <div style={{ flex: 1, textAlign: "center", fontWeight: 700, fontSize: 16 }}>{fmtMon(calYear,calMonth)}</div>
               <button onClick={() => { let m=calMonth+1,y=calYear; if(m>11){m=0;y++;} setCalMonth(m);setCalYear(y);setSelectedDay(null); }}
                 style={{ padding: "6px 14px", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", background: "#fff" }}>▶</button>
-              <button onClick={() => setModal({ type: "appt", payload: {} })}
+              <button onClick={() => setModal({ type: "appt", payload: selectedDay ? { date: `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}` } : {} })}
                 style={{ padding: "8px 14px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>＋ 予約追加</button>
             </div>
             <div style={{ overflowX: "auto", marginBottom: 16 }}>
